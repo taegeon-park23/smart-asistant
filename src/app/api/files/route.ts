@@ -46,10 +46,10 @@ export async function GET(req: NextRequest) {
 
         // Attempt to parse id and name from the key (format: uploads/fileId-fileName)
         const keyWithoutPrefix = key.substring(UPLOAD_PREFIX.length);
-        const firstDashIndex = keyWithoutPrefix.indexOf("-");
-        if (firstDashIndex > 0) {
-          id = keyWithoutPrefix.substring(0, firstDashIndex);
-          name = keyWithoutPrefix.substring(firstDashIndex + 1);
+        const splitKeys = (keyWithoutPrefix as string).split("-");
+        if (splitKeys.length > 2) {
+          id = `${splitKeys[0]}-${splitKeys[1]}`;
+          name = splitKeys[2];
         } else {
           console.warn(`Could not parse fileId and name from S3 key: ${key}`);
         }

@@ -59,6 +59,46 @@ npm install @aws-sdk/client-s3
 
 PRD 및 계획에 따라 로컬 테스트 시 MinIO를 사용한다면, S3 클라이언트 설정 시 엔드포인트를 MinIO 주소로 지정하도록 환경 변수 등을 통해 분기 처리합니다.
 
+```
+# .env.local (MinIO 사용 시)
+
+# MinIO 엔드포인트 URL (docker-compose 외부에서 next dev 실행 시 localhost 사용)
+S3_ENDPOINT_URL=http://localhost:9000
+# (참고: 만약 nextjs-app 컨테이너 내부에서 실행한다면 'http://minio:9000' 사용)
+
+# MinIO 접속 정보 (docker-compose.yml에 설정된 값 사용)
+AWS_ACCESS_KEY_ID=minioadmin
+AWS_SECRET_ACCESS_KEY=minioadmin
+
+# AWS SDK는 리전 값이 필요할 수 있으므로 기본값 설정 (MinIO 자체는 리전 개념 약함)
+AWS_REGION=us-east-1
+
+# MinIO 내에서 사용할 버킷 이름 (MinIO 콘솔/mc CLI로 미리 생성 필요)
+S3_BUCKET_NAME=my-local-bucket
+```
+
+#### MinIO 버킷 생성
+
+MinIO가 Docker Compose로 실행 중일 때, .env.local에서 S3_BUCKET_NAME으로 지정한 버킷(예: my-local-bucket)을 생성해야 합니다. MinIO 웹 콘솔(http://localhost:9001)에 접속하거나 mc (MinIO Client) CLI 도구를 사용하여 버킷을 미리 생성하세요.
+
+웹 콘솔: http://localhost:9001 접속 -> minioadmin / minioadmin 로그인 -> Buckets 메뉴 -> Create Bucket
+mc CLI 사용 예시 (별도 설치 필요):
+Bash
+
+1. MinIO 서버 별칭 설정 (최초 1회)
+   mc alias set localminio http://localhost:9000 minioadmin minioadmin
+
+2. 버킷 생성
+   mc mb localminio/my-local-bucket
+   작동 방식:
+
+Next.js 개발 서버(npm run dev)가 시작될 때 .env.local 파일을 읽어 환경 변수를 설정합니다.
+src/lib/s3Client.ts 파일이 로드될 때 process.env.S3_ENDPOINT_URL 값을 확인합니다.
+S3_ENDPOINT_URL 값이 존재하면 (MinIO 사용 시), s3Config 객체에 endpoint와 forcePathStyle: true를 추가합니다. .env.local에 설정된 AWS_ACCESS_KEY_ID와 AWS_SECRET_ACCESS_KEY (이 경우 MinIO의 minioadmin/minioadmin)가 credentials로 사용됩니다.
+S3_ENDPOINT_URL 값이 없거나 비어있으면 (AWS S3 사용 시), endpoint나 forcePathStyle 없이 기본 설정으로 클라이언트가 생성됩니다. SDK는 환경 변수나 ~/.aws/credentials 파일 등에서 AWS 자격 증명을 찾아 사용합니다.
+API 라우트 핸들러 (route.ts)들은 이렇게 조건부로 설정된 s3Client 인스턴스를 import 하여 사용하므로, 추가적인 코드 변경 없이 MinIO와 AWS S3 간 전환이 가능해집니다.
+이제 .env.local 파일의 S3_ENDPOINT_URL 설정 여부에 따라 로컬 테스트 시 MinIO를 사용하거나 실제 AWS S3를 사용하도록 제어할 수 있습니다.
+
 ## 3단계: 텍스트 추출 로직 구현
 
 ### 라이브러리 설치

@@ -5,6 +5,7 @@ export interface FileMetadata {
   name: string;
   type: string;
   size: number;
+  s3Key: string;
   // In a real app, you might add s3Key, uploadTimestamp, etc.
 }
 
