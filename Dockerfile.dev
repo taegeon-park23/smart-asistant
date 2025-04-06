@@ -1,0 +1,18 @@
+# 1. Base Image (Node.js 버전은 프로젝트에 맞게 조정하세요)
+FROM node:20-alpine AS base
+
+# 2. Set Working Directory
+WORKDIR /app
+
+# 3. Install Dependencies (root 사용자로 실행)
+COPY package*.json ./
+RUN npm install
+
+# 4. Copy Application Code (root 사용자로 복사)
+COPY . .
+
+# 5. Expose Port
+EXPOSE 3000
+
+# 6. Set Default Command (root 사용자로 실행)
+CMD ["npm", "run", "dev"]

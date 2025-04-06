@@ -1,0 +1,36 @@
+# 기본 설정을 지정합니다 (사용자의 core.autocrlf 설정이 없는 경우 대비).
+# Git이 텍스트 파일을 자동으로 감지하도록 합니다.
+* text=auto
+
+# 저장소 내에서 항상 LF 줄 바꿈으로 정규화할 텍스트 파일을 명시적으로 지정합니다.
+*.js      text eol=lf
+*.jsx     text eol=lf
+*.ts      text eol=lf
+*.tsx     text eol=lf
+*.json    text eol=lf
+*.md      text eol=lf
+*.html    text eol=lf
+*.css     text eol=lf
+*.scss    text eol=lf
+*.yml     text eol=lf
+*.yaml    text eol=lf
+*.sh      text eol=lf
+*.env* text eol=lf
+Dockerfile text eol=lf
+
+# 체크아웃 시 항상 CRLF 줄 바꿈을 사용할 파일을 지정합니다 (주로 Windows 배치 파일).
+*.bat     text eol=crlf
+
+# 수정해서는 안 되는 바이너리 파일을 지정합니다.
+*.png     binary
+*.jpg     binary
+*.jpeg    binary
+*.gif     binary
+*.ico     binary
+*.pdf     binary
+*.woff    binary
+*.woff2   binary
+*.ttf     binary
+*.eot     binary
+*.sqlite  binary
+*.db      binary

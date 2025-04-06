@@ -1,0 +1,41 @@
+services:
+  nextjs-app:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    # user: node # <-- 제거 또는 주석 처리 (root로 실행)
+    ports:
+      - "3000:3000"
+    volumes:
+      # 소스 코드 마운트 (라이브 리로딩용, .next 제외)
+      - .:/app
+      # node_modules 격리 (호스트 node_modules가 덮어쓰는 것 방지)
+      - /app/node_modules
+      # .next 폴더는 Named Volume 사용 (root 사용자는 여기에 쓰기 권한 가짐)
+      - nextjs_dev_cache:/app/.next
+    environment:
+      - NODE_ENV=development
+      # 필요시 다른 환경 변수 추가
+    container_name: nextjs-app
+    # command를 기본값으로 되돌림 (Dockerfile의 CMD 사용)
+    # 또는 명시적으로 command: ["npm", "run", "dev"] 사용 가능
+    # command: sh -c "chown -R node:node /app/.next && su-exec node npm run dev" # <-- 제거 또는 주석 처리
+    restart: unless-stopped # 개발 중에는 'no' 또는 'on-failure' 고려
+
+  minio:
+    image: minio/minio:latest
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio_data:/data
+    environment:
+      - MINIO_ROOT_USER=minioadmin
+      - MINIO_ROOT_PASSWORD=minioadmin
+    command: server /data --console-address ":9001"
+    container_name: minio
+    restart: unless-stopped
+
+volumes:
+  minio_data:
+  nextjs_dev_cache: # nextjs-app의 .next 폴더를 위한 Named Volume 정의
