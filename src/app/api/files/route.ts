@@ -11,6 +11,7 @@ import {
 } from "@aws-sdk/client-s3";
 import { extractTextFromFile } from "@/lib/textExtractor"; // Import text extraction function
 import { getDb } from "@/lib/db";
+import { getEmbeddings } from "@/lib/embeddingGenerator";
 
 const BUCKET_NAME = process.env.S3_BUCKET_NAME;
 const UPLOAD_PREFIX = "uploads/"; // Define the prefix where files are stored
@@ -78,134 +79,237 @@ export async function GET(req: NextRequest) {
   }
 }
 
-// POST /api/files - Upload a new file to S3, then extract text (텍스트 추출 순서 수정됨)
-export async function POST(req: NextRequest) {
-  if (!BUCKET_NAME) {
-    console.error("S3_BUCKET_NAME environment variable is not set.");
-    return NextResponse.json(
-      { error: "Server configuration error" },
-      { status: 500 }
-    );
+/** 1. 요청에서 파일 정보 및 버퍼 추출 */
+async function getFileInfoFromRequest(req: NextRequest): Promise<{
+  file: File;
+  fileBuffer: Buffer;
+  fileName: string;
+  fileType: string;
+  fileSize: number;
+}> {
+  const formData = await req.formData();
+  const file = formData.get("file") as File | null;
+  if (!file) {
+    throw new Error("No file provided"); // 에러 throw하여 상위에서 처리
   }
+  const fileBuffer = Buffer.from(await file.arrayBuffer());
+  return {
+    file,
+    fileBuffer,
+    fileName: file.name,
+    fileType: file.type,
+    fileSize: file.size,
+  };
+}
+
+/** 2. S3에 파일 업로드 */
+async function uploadToS3(
+  key: string,
+  buffer: Buffer,
+  type: string
+): Promise<void> {
+  if (!BUCKET_NAME) throw new Error("S3_BUCKET_NAME is not configured.");
+  const putCommand = new PutObjectCommand({
+    Bucket: BUCKET_NAME,
+    Key: key,
+    Body: buffer,
+    ContentType: type,
+  });
+  await s3Client.send(putCommand);
+  console.log(`File uploaded successfully to S3: ${BUCKET_NAME}/${key}`);
+}
+
+/** 3. DB에 문서 메타데이터 저장 */
+function storeDocumentMetadata(db: Database, metadata: FileMetadata): void {
+  try {
+    const stmt = db.prepare(
+      "INSERT INTO documents (id, name, type, size, s3Key) VALUES (@id, @name, @type, @size, @s3Key)"
+    );
+    stmt.run(metadata); // 객체를 직접 바인딩 (better-sqlite3 기능)
+    console.log(`Metadata for ${metadata.name} saved to database.`);
+  } catch (dbError) {
+    console.error("Error saving document metadata to database:", dbError);
+    // TODO: DB 저장 실패 시 S3 롤백 고려?
+    throw dbError; // 에러를 다시 throw하여 파이프라인 중단
+  }
+}
+
+/** 4. 파일에서 텍스트 추출 */
+async function extractText(
+  buffer: Buffer,
+  type: string,
+  name: string
+): Promise<string> {
+  if (type === "application/pdf" || type === "text/plain") {
+    try {
+      const text = await extractTextFromFile(buffer, type);
+      console.log(`Text extracted from ${name}. Length: ${text.length}`);
+      return text;
+    } catch (extractionError) {
+      console.error(`Failed to extract text from ${name}:`, extractionError);
+      return ""; // 추출 실패 시 빈 문자열 반환 (오류를 throw하지 않고 진행)
+    }
+  } else {
+    console.log(`Skipping text extraction for unsupported file type: ${type}`);
+    return "";
+  }
+}
+
+/** 5. 텍스트 청킹 (TODO: 실제 구현 필요) */
+function chunkText(text: string): string[] {
+  // TODO: 실제 청킹 로직 구현 (예: Langchain RecursiveCharacterTextSplitter 사용)
+  // 현재는 임시로 전체 텍스트를 하나의 청크로 반환하거나, 간단히 문단 분리 등 시도
+  console.log("Chunking text (using basic placeholder)...");
+  if (!text) return [];
+  // 매우 기본적인 예시: 빈 줄 기준으로 나누기 (실제로는 더 정교해야 함)
+  const chunks = text
+    .split(/\n\s*\n/)
+    .filter((chunk) => chunk.trim().length > 0);
+  console.log(`Split into ${chunks.length} basic chunks.`);
+  // 각 청크가 너무 길면 추가 분할 필요
+  // 실제로는 토큰 기반 분할기 권장
+  return chunks.length > 0 ? chunks : [text]; // 빈 텍스트 처리
+}
+
+/** 6. 임베딩 생성 및 DB 저장 */
+async function generateAndStoreEmbeddings(
+  db: Database,
+  docId: string,
+  chunks: string[]
+): Promise<void> {
+  if (chunks.length === 0) {
+    console.log("No chunks to process for embeddings.");
+    return;
+  }
+  console.log(
+    `Generating and storing embeddings for ${chunks.length} chunks...`
+  );
+
+  // better-sqlite3는 트랜잭션 내에서 prepared statement 재사용이 효율적
+  const insertChunkStmt = db.prepare(
+    "INSERT INTO chunks (doc_id, chunk_text) VALUES (?, ?) RETURNING id" // RETURNING id는 better-sqlite3 v9+ 에서 사용 가능, 하위 버전은 lastInsertRowid 사용
+  );
+  const insertVectorStmt = db.prepare(
+    "INSERT INTO vss_chunks (rowid, embedding) VALUES (?, ?)" // vss_chunks는 rowid를 직접 지정하여 삽입 가능
+  );
+
+  // 트랜잭션 시작
+  db.exec("BEGIN");
+  try {
+    for (const chunkText of chunks) {
+      let embeddingVector: number[] = [];
+      try {
+        embeddingVector = await getEmbeddings(chunkText);
+      } catch (embeddingError) {
+        console.error(
+          `Failed to generate embedding for a chunk of doc ${docId}:`,
+          embeddingError
+        );
+        // 특정 청크 임베딩 실패 시 어떻게 처리할지 결정 (예: 건너뛰기)
+        continue; // 다음 청크로 넘어감
+      }
+
+      if (embeddingVector.length > 0) {
+        // 1. chunks 테이블에 텍스트 삽입하고 chunk_id(rowid) 얻기
+        // .run().id 는 v9+, 이전 버전은 .run().lastInsertRowid
+        const chunkInsertResult = insertChunkStmt.run(docId, chunkText);
+        // const chunkRowId = chunkInsertResult.lastInsertRowid;
+        const chunkRowId =
+          (chunkInsertResult as any).id ?? chunkInsertResult.lastInsertRowid; // 버전 호환성
+
+        if (chunkRowId) {
+          // 2. vss_chunks 테이블에 embedding 삽입 (rowid를 chunk의 rowid와 동일하게 사용)
+          // 벡터는 일반적으로 Float32Array로 변환하여 저장하는 것이 효율적일 수 있음 (sqlite-vss 문서 확인 필요)
+          const vectorBuffer = Buffer.from(
+            new Float32Array(embeddingVector).buffer
+          );
+          insertVectorStmt.run(chunkRowId, vectorBuffer);
+          console.log(
+            `Stored chunk ${chunkRowId} and its vector for doc ${docId}`
+          );
+        } else {
+          console.warn(
+            `Could not get rowid after inserting chunk for doc ${docId}`
+          );
+        }
+      }
+    }
+    // 모든 작업 성공 시 트랜잭션 커밋
+    db.exec("COMMIT");
+    console.log(
+      `Successfully processed and stored embeddings for doc ${docId}`
+    );
+  } catch (error) {
+    // 오류 발생 시 롤백
+    console.error(
+      "Error during embedding storage transaction, rolling back:",
+      error
+    );
+    db.exec("ROLLBACK");
+    throw error; // 상위 핸들러에서 처리하도록 에러 재발생
+  }
+}
+
+// --- POST Handler (Refactored Pipeline) ---
+export async function POST(req: NextRequest) {
+  let fileId: string | null = null; // 에러 발생 시 롤백 위해 필요할 수 있음
+  let s3Key: string | null = null;
 
   try {
-    const formData = await req.formData();
-    const file = formData.get("file") as File | null;
+    // 1. 요청에서 파일 정보 추출
+    const { file, fileBuffer, fileName, fileType, fileSize } =
+      await getFileInfoFromRequest(req);
 
-    if (!file) {
-      return NextResponse.json({ error: "No file provided" }, { status: 400 });
-    }
+    // 2. 고유 ID 및 S3 키 생성
+    fileId = `${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
+    s3Key = `${UPLOAD_PREFIX}${fileId}-${fileName}`;
 
-    // --- Basic File Info ---
-    const fileName = file.name;
-    const fileType = file.type;
-    const fileSize = file.size;
-    // 파일 버퍼는 S3 업로드와 텍스트 추출 모두에 필요
-    const fileBuffer = Buffer.from(await file.arrayBuffer());
+    // 3. S3에 파일 업로드
+    await uploadToS3(s3Key, fileBuffer, fileType);
 
-    // Generate a simple unique ID (replace with UUID in a real app)
-    const fileId = `${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
-    const s3Key = `${UPLOAD_PREFIX}${fileId}-${fileName}`; // Use prefix
-
-    // --- Upload to S3 (먼저 실행) ---
-    const putCommand = new PutObjectCommand({
-      Bucket: BUCKET_NAME,
-      Key: s3Key,
-      Body: fileBuffer,
-      ContentType: fileType,
-      // ACL: 'private', // Or other ACL settings as needed
-    });
-
-    await s3Client.send(putCommand);
-    console.log(`File uploaded successfully to S3: ${BUCKET_NAME}/${s3Key}`);
-    // --- End S3 Upload ---
-
-    // --- ★ 텍스트 추출 시도 (S3 업로드 성공 후 실행) ★ ---
-    // (이 블록이 S3 업로드 뒤로 이동되었습니다)
-    let extractedText = "";
-    try {
-      // 지원되는 타입(PDF, TXT)만 텍스트 추출 시도
-      if (fileType === "application/pdf" || fileType === "text/plain") {
-        extractedText = await extractTextFromFile(fileBuffer, fileType);
-        console.log("Extracted Text:", extractedText.substring(0, 200) + "..."); // 필요시 로그 활성화
-        // TODO: 추출된 텍스트를 RAG 파이프라인의 다음 단계(임베딩 생성 등)로 전달
-      } else {
-        console.log(
-          `Skipping text extraction for unsupported file type: ${fileType}`
-        );
-      }
-    } catch (extractionError: any) {
-      // More specific type or check needed
-      console.error(
-        `Failed to extract text from ${fileName} after S3 upload:`,
-        extractionError
-      );
-      // 텍스트 추출 실패 시 어떻게 처리할지 결정 (현재는 로깅만 하고 진행)
-    }
-    // --- ★ 텍스트 추출 완료 ★ ---
-
-    // --- Store Metadata (텍스트 추출 시도 후 실행) ---
-    // GET 요청은 S3를 직접 보므로, 이 메모리 내 저장은
-    // DELETE 요청 시 S3 Key를 조회하거나, UI에서 즉각적인 피드백을 줄 때만 유효합니다.
-    // 장기적으로는 DB 등으로 대체 필요.
+    // 4. 문서 메타데이터 DB 저장 (S3 업로드 성공 후)
+    const db = getDb(); // DB 인스턴스 가져오기 (이 시점에 초기화될 수 있음)
     const newMetadata: FileMetadata = {
       id: fileId,
       name: fileName,
       type: fileType,
       size: fileSize,
-      s3Key: s3Key, // Store the S3 key
+      s3Key: s3Key,
     };
+    storeDocumentMetadata(db, newMetadata); // 함수 호출
 
-    try {
-      const db = getDb();
-      const stmt = db.prepare(
-        "INSERT INTO documents (id, name, type, size, s3Key) VALUES (?, ?, ?, ?, ?)"
-      );
-      stmt.run(
-        newMetadata.id,
-        newMetadata.name,
-        newMetadata.type,
-        newMetadata.size,
-        newMetadata.s3Key
-      );
-      console.log(`Metadata for ${newMetadata.name} saved to database.`);
-    } catch (dbError) {
-      console.error("Error saving metadata to database:", dbError);
-      // DB 에러 처리 (예: S3에 업로드된 파일 롤백 등)
+    // 5. 텍스트 추출
+    const extractedText = await extractText(fileBuffer, fileType, fileName);
+
+    // 6. 텍스트 청킹 및 임베딩 생성/저장 (텍스트가 있을 경우)
+    if (extractedText) {
+      const chunks = chunkText(extractedText); // TODO: 실제 청킹 로직 개선 필요
+      await generateAndStoreEmbeddings(db, fileId, chunks);
     }
-    console.log("Updated file store:", fileMetadataStore);
-    // --- End Metadata Store ---
 
+    // 7. 성공 응답 반환
     return NextResponse.json(
       {
-        message: "File uploaded successfully",
+        message: "File processed successfully",
         fileId: fileId,
         metadata: newMetadata,
-        extractedText: extractedText, // 필요시 응답에 텍스트 포함 (디버깅용)
       },
-      { status: 201 } // 201 Created status
+      { status: 201 }
     );
-  } catch (error) {
-    console.error("Error uploading file:", error);
+  } catch (error: any) {
+    // any 대신 unknown 사용 권장 후 타입 체크
+    console.error("Error processing file upload pipeline:", error);
 
-    // Check for specific error types if needed (like the curl issue)
-    if (
-      error instanceof Error &&
-      error.name === "TypeError" &&
-      error.message.includes(".stream is not a function")
-    ) {
-      return NextResponse.json(
-        {
-          error:
-            "Invalid file data received. Ensure file is uploaded correctly (e.g., using @filename with curl).",
-        },
-        { status: 400 }
-      );
+    // TODO: 에러 단계별 롤백 로직 추가 (예: DB 저장 실패 시 S3 객체 삭제)
+
+    // Specific error handling (e.g., file not provided)
+    if (error.message === "No file provided") {
+      return NextResponse.json({ error: error.message }, { status: 400 });
     }
-    // Handle S3 specific errors if needed, e.g., credentials error
+    // Handle other known errors (S3, DB, Embeddings) if needed
 
     return NextResponse.json(
-      { error: "Failed to upload file" },
+      { error: `Failed to process file: ${error.message}` },
       { status: 500 }
     );
   }
