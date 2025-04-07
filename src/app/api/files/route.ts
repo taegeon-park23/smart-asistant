@@ -9,7 +9,8 @@ import {
   ListObjectsV2Command,
   S3Object, // _Object 대신 S3Object 사용 (SDK v3 스타일)
 } from "@aws-sdk/client-s3";
-import { extractTextFromFile } from "@/lib/textExtractor";
+import { extractTextFromFile } from "@/lib/textExtractor"; // Import text extraction function
+import { getDb } from "@/lib/db";
 
 const BUCKET_NAME = process.env.S3_BUCKET_NAME;
 const UPLOAD_PREFIX = "uploads/"; // Define the prefix where files are stored
@@ -120,6 +121,7 @@ export async function POST(req: NextRequest) {
     // --- End S3 Upload ---
 
     // --- ★ 텍스트 추출 시도 (S3 업로드 성공 후 실행) ★ ---
+    // (이 블록이 S3 업로드 뒤로 이동되었습니다)
     let extractedText = "";
     try {
       // 지원되는 타입(PDF, TXT)만 텍스트 추출 시도
@@ -154,7 +156,23 @@ export async function POST(req: NextRequest) {
       s3Key: s3Key, // Store the S3 key
     };
 
-    fileMetadataStore.push(newMetadata);
+    try {
+      const db = getDb();
+      const stmt = db.prepare(
+        "INSERT INTO documents (id, name, type, size, s3Key) VALUES (?, ?, ?, ?, ?)"
+      );
+      stmt.run(
+        newMetadata.id,
+        newMetadata.name,
+        newMetadata.type,
+        newMetadata.size,
+        newMetadata.s3Key
+      );
+      console.log(`Metadata for ${newMetadata.name} saved to database.`);
+    } catch (dbError) {
+      console.error("Error saving metadata to database:", dbError);
+      // DB 에러 처리 (예: S3에 업로드된 파일 롤백 등)
+    }
     console.log("Updated file store:", fileMetadataStore);
     // --- End Metadata Store ---
 

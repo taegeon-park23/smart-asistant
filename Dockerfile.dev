@@ -1,8 +1,11 @@
-# 1. Base Image (Node.js 버전은 프로젝트에 맞게 조정하세요)
-FROM node:20-alpine AS base
+# FROM node:20-slim AS base (이전 수정 사항 유지)
+FROM node:20-slim AS base
 
-# 2. Set Working Directory
 WORKDIR /app
+
+# --- 빌드 도구, curl, 그리고 libblas3 설치 ---
+RUN apt-get update && apt-get install -y --no-install-recommends python3 make g++ curl libblas3 liblapack3 ca-certificates && rm -rf /var/lib/apt/lists/*
+# ----------------------------------------
 
 # 3. Install Dependencies (root 사용자로 실행)
 COPY package*.json ./
@@ -10,6 +13,16 @@ RUN npm install
 
 # 4. Copy Application Code (root 사용자로 복사)
 COPY . .
+
+# --- sqlite-vss 확장 기능 다운로드 ---
+# TODO: 아래 URL은 예시이며, 실제 sqlite-vss 릴리즈 페이지에서
+#       Linux x64용 최신 .so 파일의 다운로드 URL로 변경해야 합니다.
+#       (예: https://github.com/asg017/sqlite-vss/releases)
+ARG SQLITE_VECTOR0_DOWNLOAD_URL=https://github.com/asg017/sqlite-vss/releases/download/v0.1.2/sqlite-vss-v0.1.2-deno-linux-x86_64.vector0.so
+ARG SQLITE_VSS_DOWNLOAD_URL=https://github.com/asg017/sqlite-vss/releases/download/v0.1.2/sqlite-vss-v0.1.2-deno-linux-x86_64.vss0.so
+
+RUN curl -L -o /usr/local/lib/vector0.so $SQLITE_VECTOR0_DOWNLOAD_URL && curl -L -o /usr/local/lib/vss0.so $SQLITE_VSS_DOWNLOAD_URL
+# ---------------------------------
 
 # 5. Expose Port
 EXPOSE 3000

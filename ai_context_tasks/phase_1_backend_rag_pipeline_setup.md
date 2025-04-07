@@ -134,6 +134,45 @@ npm install --save-dev @types/better-sqlite3
 - sqlite-vss를 직접 사용하거나, 이를 포함하는 라이브러리를 찾습니다.
 - **중요**: 이 확장 기능은 Docker 컨테이너 환경에 설치되어야 합니다. Dockerfile에 sqlite-vss를 다운로드하고 로드하는 단계를 추가해야 할 수 있습니다. (예: apt-get으로 관련 패키지 설치 또는 직접 빌드/다운로드)
 
+이제 Dockerfile 내에서 npm install 시 better-sqlite3가 네이티브 애드온을 컴파일할 수 있도록 빌드 도구를 설치해야 합니다. 이전 단계에서 node:20-slim (Debian 기반) 이미지를 사용하기로 했다고 가정하고 Dockerfile을 수정합니다.
+
+```
+# Dockerfile.dev
+FROM node:20-slim AS base # Debian 기반 이미지 사용 권장
+
+WORKDIR /app
+
+# --- 빌드 도구 및 curl 설치 ---
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        python3 \
+        make \
+        g++ \
+        curl \
+    && rm -rf /var/lib/apt/lists/*
+# ----------------------------
+
+# Copy package files first
+COPY package*.json ./
+
+# Install dependencies (이제 better-sqlite3 컴파일 가능)
+RUN npm install
+
+# Copy the rest of the application code (respecting .dockerignore)
+COPY . .
+
+# --- sqlite-vss 확장 기능 다운로드 ---
+# TODO: 아래 URL은 예시이며, 실제 sqlite-vss 릴리즈 페이지에서
+#       Linux x64용 최신 .so 파일의 다운로드 URL로 변경해야 합니다.
+#       (예: https://github.com/alexgarcia/sqlite-vss/releases)
+ARG SQLITE_VSS_DOWNLOAD_URL=https://github.com/alexgarcia/sqlite-vss/releases/download/v0.1.2/vss0-linux-x86_64.so
+RUN curl -L -o /usr/local/lib/vss0.so $SQLITE_VSS_DOWNLOAD_URL
+# ---------------------------------
+
+EXPOSE 3000
+CMD ["npm", "run", "dev"]
+```
+
 ### 데이터베이스 초기화 로직 구현
 
 - 애플리케이션 시작 시 또는 필요할 때 SQLite 데이터베이스 파일(예: 컨테이너 내 /app/db/database.sqlite)을 열거나 생성하는 코드를 작성합니다.
