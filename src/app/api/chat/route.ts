@@ -3,8 +3,18 @@ import { NextRequest, NextResponse } from "next/server";
 import { SearchResult, searchSimilarChunks } from "@/lib/vectorSearch"; // 벡터 검색 함수 import
 import openai from "@/lib/openaiClient"; // OpenAI 클라이언트
 import { ChatCompletionMessageParam } from "openai/src/resources.js";
+import crypto from "crypto"; // 캐시 키 생성을 위한 해시 사용
+import cache from "@/lib/cache";
 
 const LLM_MODEL = "gpt-4o-mini";
+const LLM_CACHE_KEY_PREFIX = "llm_answer_";
+
+// 간단한 해시 함수 (캐시 키 생성용)
+function generateCacheKey(message: string, context: string): string {
+  const hash = crypto.createHash("sha256");
+  hash.update(message + "||" + context); // 메시지와 컨텍스트 조합
+  return `${LLM_CACHE_KEY_PREFIX}${hash.digest("hex")}`;
+}
 
 export async function POST(req: NextRequest) {
   try {
@@ -44,6 +54,16 @@ export async function POST(req: NextRequest) {
             .join("\n\n---\n\n") // 청크 구분 명확화
         : "관련된 참고 문서를 찾지 못했습니다.";
 
+    const llmCacheKey = generateCacheKey(message, contextText);
+
+    const cachedAnswer = cache.get<string>(llmCacheKey);
+    if (cachedAnswer) {
+      console.log(
+        `Cache hit for LLM answer: Query="${message.substring(0, 30)}..."`
+      );
+      return NextResponse.json({ answer: cachedAnswer });
+    }
+
     // 3. LLM 프롬프트 구성
     // 참고 문서에 질문과 관련된 내용이 전혀 없거나 부족할 경우, "문서에서 관련 내용을 찾을 수 없습니다." 또는 "정보가 부족하여 답변하기 어렵습니다." 와 같이 솔직하게 답변해주세요. 내용을 추측하거나 일반적인 지식을 기반으로 답변하지 마세요.
     const messages: ChatCompletionMessageParam[] = [
@@ -53,18 +73,9 @@ export async function POST(req: NextRequest) {
       },
       {
         role: "user",
-        content: `
-[참고 문서]
-${contextText}
-
----
-
-[질문]
-${message}
-`,
+        content: `\n[참고 문서]\n${contextText}\n\n---\n\n[질문]\n${message}\n`,
       },
     ];
-
     console.log(messages);
 
     let llmAnswer = "답변 생성 중 오류가 발생했습니다."; // 기본 오류 메시지
@@ -77,13 +88,14 @@ ${message}
       });
 
       llmAnswer = completion.choices[0]?.message?.content?.trim() || llmAnswer; // 응답 추출, 실패 시 기본 메시지 유지
+      cache.set(llmCacheKey, llmAnswer);
+      console.log(`Stored LLM answer in cache: Key=${llmCacheKey}`);
     } catch (llmError) {
       console.error("Error calling OpenAI API:", llmError);
-      // OpenAI API 관련 오류 처리 (예: API 키 오류, rate limit 등)
-      // 클라이언트에는 좀 더 일반적인 오류 메시지 전달 가능
-      llmAnswer = "AI 모델 호출 중 오류가 발생했습니다.";
-      // 또는 여기서 500 에러를 반환할 수도 있음
-      // return NextResponse.json({ error: 'AI model interaction failed' }, { status: 500 });
+      return NextResponse.json(
+        { error: "AI model interaction failed" },
+        { status: 500 }
+      );
     }
 
     console.log(`Generated Answer: ${llmAnswer}`);

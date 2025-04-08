@@ -1,7 +1,9 @@
 // src/lib/embeddingGenerator.ts
+import cache from "./cache";
 import openai from "./openaiClient"; // 위에서 설정한 클라이언트 import
 
 const EMBEDDING_MODEL = "text-embedding-3-small";
+const CACHE_KEY_PREFIX = "embedding_"; // 캐시 키 접두사
 
 /**
  * 주어진 텍스트에 대한 OpenAI 임베딩 벡터를 생성합니다.
@@ -11,16 +13,18 @@ const EMBEDDING_MODEL = "text-embedding-3-small";
  */
 export async function getEmbeddings(text: string): Promise<number[]> {
   if (!text || text.trim().length === 0) {
-    // OpenAI API는 빈 문자열 입력 시 오류를 반환하므로 미리 처리
-    console.warn("Attempted to get embeddings for empty text.");
-    // 빈 배열을 반환하거나 에러를 throw 할 수 있습니다. 요구사항에 따라 결정.
-    // 여기서는 빈 배열을 반환하여 호출 측에서 처리하도록 합니다.
-    return [];
-    // 또는 throw new Error("Input text cannot be empty.");
+    throw new Error("Input text cannot be empty.");
   }
 
   // API는 입력 문자열의 개행 문자를 이스케이프 처리하는 것이 좋습니다.
   const inputText = text.replace(/\n/g, " ");
+
+  const cacheKey = `${CACHE_KEY_PREFIX}${inputText}`;
+  const cachedEmbedding = cache.get<number[]>(cacheKey);
+  if (cachedEmbedding) {
+    console.log(`Cache hit for embedding: "${inputText.substring(0, 50)}..."`);
+    return cachedEmbedding;
+  }
 
   try {
     console.log(
@@ -39,10 +43,13 @@ export async function getEmbeddings(text: string): Promise<number[]> {
       response.data.length > 0 &&
       response.data[0].embedding
     ) {
+      const embeddingVector = response.data[0].embedding;
       console.log(
-        `Embeddings received successfully. Dimension: ${response.data[0].embedding.length}`
+        `Embeddings received successfully. Dimension: ${embeddingVector.length}`
       );
-      return response.data[0].embedding;
+      // 3. 결과를 캐시에 저장 (기본 TTL 적용됨)
+      cache.set(cacheKey, embeddingVector);
+      return embeddingVector;
     } else {
       // 예상치 못한 응답 형식
       console.error(
