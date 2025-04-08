@@ -1,6 +1,7 @@
 // src/app/api/files/[fileId]/route.ts
 import { NextRequest, NextResponse } from "next/server";
 // REMOVED: No longer importing fileMetadataStore
+import { S3ServiceException } from "@aws-sdk/client-s3";
 // import { fileMetadataStore } from "../fileStore";
 import s3Client from "@/lib/s3Client"; // Adjust path to your s3Client setup
 // Import needed S3 commands
@@ -16,13 +17,13 @@ const UPLOAD_PREFIX = "uploads/"; // Define the prefix where files are stored
 // DELETE /api/files/{fileId} - Delete a specific file by ID by listing S3 first
 export async function DELETE(
   req: NextRequest,
-  { params }: { params: { fileId: string } },
+  { params }: { params: { fileId: string } }
 ) {
   if (!BUCKET_NAME) {
     console.error("S3_BUCKET_NAME environment variable is not set.");
     return NextResponse.json(
       { error: "Server configuration error" },
-      { status: 500 },
+      { status: 500 }
     );
   }
 
@@ -32,7 +33,7 @@ export async function DELETE(
     if (!fileIdToDelete) {
       return NextResponse.json(
         { error: "File ID is required" },
-        { status: 400 },
+        { status: 400 }
       );
     }
 
@@ -55,14 +56,14 @@ export async function DELETE(
         console.log(`No S3 object found with prefix: ${listPrefix}`);
         return NextResponse.json(
           { error: "File not found in storage" },
-          { status: 404 },
+          { status: 404 }
         );
       } else if (objectsFound.length > 1) {
         // Ambiguous: multiple objects match the prefix. Log warning and delete all? Or return error?
         // For safety, let's log a warning but proceed to delete the first one found for now.
         // Consider a more robust strategy if this ambiguity is possible in your use case.
         console.warn(
-          `Ambiguous delete request: Found ${objectsFound.length} objects matching prefix ${listPrefix}. Deleting the first one.`,
+          `Ambiguous delete request: Found ${objectsFound.length} objects matching prefix ${listPrefix}. Deleting the first one.`
         );
         s3KeyToDelete = objectsFound[0].Key!;
       } else {
@@ -73,11 +74,11 @@ export async function DELETE(
     } catch (listError) {
       console.error(
         `Error listing objects from S3 with prefix ${listPrefix}:`,
-        listError,
+        listError
       );
       return NextResponse.json(
         { error: "Failed to check file storage" },
-        { status: 500 },
+        { status: 500 }
       );
     }
     // --- End Step 1 ---
@@ -86,11 +87,11 @@ export async function DELETE(
     if (!s3KeyToDelete) {
       // This should ideally not happen if logic above is correct, but as a safeguard:
       console.error(
-        `Could not determine S3 key to delete for prefix ${listPrefix}`,
+        `Could not determine S3 key to delete for prefix ${listPrefix}`
       );
       return NextResponse.json(
         { error: "Failed to identify file in storage" },
-        { status: 500 },
+        { status: 500 }
       );
     }
 
@@ -102,16 +103,23 @@ export async function DELETE(
     try {
       await s3Client.send(deleteCommand);
       console.log(
-        `File deleted successfully from S3: ${BUCKET_NAME}/${s3KeyToDelete}`,
+        `File deleted successfully from S3: ${BUCKET_NAME}/${s3KeyToDelete}`
       );
-    } catch (s3Error: any) {
+    } catch (s3Error: unknown) {
       // Log S3 delete error, but proceed to return success as the intent was deletion.
       // If the object was already gone (NoSuchKey), it's still effectively deleted.
       console.error(
         `Error deleting file from S3 (Key: ${s3KeyToDelete}), but proceeding:`,
-        s3Error,
+        s3Error
       );
       // Optionally check for specific S3 error codes if needed
+      if (s3Error instanceof S3ServiceException) {
+        console.error(
+          `S3 Error Code: ${s3Error.name}, Message: ${s3Error.message}`
+        );
+      } else if (s3Error instanceof Error) {
+        console.error(`Generic Error Message: ${s3Error.message}`);
+      }
     }
     // --- End Step 2 ---
 
@@ -126,11 +134,11 @@ export async function DELETE(
   } catch (error) {
     console.error(
       `Error processing delete request for file ID ${params?.fileId}:`,
-      error,
+      error
     );
     return NextResponse.json(
       { error: "Failed to delete file" },
-      { status: 500 },
+      { status: 500 }
     );
   }
 }

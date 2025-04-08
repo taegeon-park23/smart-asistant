@@ -1,7 +1,7 @@
 // src/app/api/files/route.ts
 import { NextRequest, NextResponse } from "next/server";
 // fileMetadataStore는 POST에서 임시로 사용될 수 있으나 GET은 S3 직접 조회
-import { fileMetadataStore, FileMetadata } from "./fileStore";
+import { FileMetadata } from "./fileStore";
 import s3Client from "@/lib/s3Client"; // Adjust path to your s3Client setup
 // Import necessary S3 commands
 import {
@@ -11,18 +11,19 @@ import {
 } from "@aws-sdk/client-s3";
 import { extractTextFromFile } from "@/lib/textExtractor"; // Import text extraction function
 import { getDb } from "@/lib/db";
+import Database from "better-sqlite3";
 import { getEmbeddings } from "@/lib/embeddingGenerator";
 
 const BUCKET_NAME = process.env.S3_BUCKET_NAME;
 const UPLOAD_PREFIX = "uploads/"; // Define the prefix where files are stored
 
 // GET /api/files - Retrieve list of files directly from S3 (사용자가 제공한 버전 유지)
-export async function GET(req: NextRequest) {
+export async function GET(_req: NextRequest) {
   if (!BUCKET_NAME) {
     console.error("S3_BUCKET_NAME environment variable is not set.");
     return NextResponse.json(
       { error: "Server configuration error" },
-      { status: 500 },
+      { status: 500 }
     );
   }
 
@@ -39,7 +40,7 @@ export async function GET(req: NextRequest) {
       // Filter out the directory marker if present and ensure Key exists
       .filter(
         (obj: S3Object) =>
-          obj.Key && obj.Key !== UPLOAD_PREFIX && obj.Size !== undefined,
+          obj.Key && obj.Key !== UPLOAD_PREFIX && obj.Size !== undefined
       )
       .map((obj: S3Object) => {
         const key = obj.Key!;
@@ -74,7 +75,7 @@ export async function GET(req: NextRequest) {
     // Handle S3 specific errors if needed
     return NextResponse.json(
       { error: "Failed to fetch file list" },
-      { status: 500 },
+      { status: 500 }
     );
   }
 }
@@ -106,7 +107,7 @@ async function getFileInfoFromRequest(req: NextRequest): Promise<{
 async function uploadToS3(
   key: string,
   buffer: Buffer,
-  type: string,
+  type: string
 ): Promise<void> {
   if (!BUCKET_NAME) throw new Error("S3_BUCKET_NAME is not configured.");
   const putCommand = new PutObjectCommand({
@@ -123,7 +124,7 @@ async function uploadToS3(
 function storeDocumentMetadata(db: Database, metadata: FileMetadata): void {
   try {
     const stmt = db.prepare(
-      "INSERT INTO documents (id, name, type, size, s3Key) VALUES (@id, @name, @type, @size, @s3Key)",
+      "INSERT INTO documents (id, name, type, size, s3Key) VALUES (@id, @name, @type, @size, @s3Key)"
     );
     stmt.run(metadata); // 객체를 직접 바인딩 (better-sqlite3 기능)
     console.log(`Metadata for ${metadata.name} saved to database.`);
@@ -138,7 +139,7 @@ function storeDocumentMetadata(db: Database, metadata: FileMetadata): void {
 async function extractText(
   buffer: Buffer,
   type: string,
-  name: string,
+  name: string
 ): Promise<string> {
   if (type === "application/pdf" || type === "text/plain") {
     try {
@@ -175,22 +176,22 @@ function chunkText(text: string): string[] {
 async function generateAndStoreEmbeddings(
   db: Database,
   docId: string,
-  chunks: string[],
+  chunks: string[]
 ): Promise<void> {
   if (chunks.length === 0) {
     console.log("No chunks to process for embeddings.");
     return;
   }
   console.log(
-    `Generating and storing embeddings for ${chunks.length} chunks...`,
+    `Generating and storing embeddings for ${chunks.length} chunks...`
   );
 
   // better-sqlite3는 트랜잭션 내에서 prepared statement 재사용이 효율적
   const insertChunkStmt = db.prepare(
-    "INSERT INTO chunks (doc_id, chunk_text) VALUES (?, ?) RETURNING id", // RETURNING id는 better-sqlite3 v9+ 에서 사용 가능, 하위 버전은 lastInsertRowid 사용
+    "INSERT INTO chunks (doc_id, chunk_text) VALUES (?, ?) RETURNING id" // RETURNING id는 better-sqlite3 v9+ 에서 사용 가능, 하위 버전은 lastInsertRowid 사용
   );
   const insertVectorStmt = db.prepare(
-    "INSERT INTO vss_chunks (rowid, embedding) VALUES (?, ?)", // vss_chunks는 rowid를 직접 지정하여 삽입 가능
+    "INSERT INTO vss_chunks (rowid, embedding) VALUES (?, ?)" // vss_chunks는 rowid를 직접 지정하여 삽입 가능
   );
 
   // 트랜잭션 시작
@@ -203,7 +204,7 @@ async function generateAndStoreEmbeddings(
       } catch (embeddingError) {
         console.error(
           `Failed to generate embedding for a chunk of doc ${docId}:`,
-          embeddingError,
+          embeddingError
         );
         // 특정 청크 임베딩 실패 시 어떻게 처리할지 결정 (예: 건너뛰기)
         continue; // 다음 청크로 넘어감
@@ -212,24 +213,32 @@ async function generateAndStoreEmbeddings(
       if (embeddingVector.length > 0) {
         // 1. chunks 테이블에 텍스트 삽입하고 chunk_id(rowid) 얻기
         // .run().id 는 v9+, 이전 버전은 .run().lastInsertRowid
-        const chunkInsertResult = insertChunkStmt.run(docId, chunkText);
+        const chunkInsertResult: Database.RunResult = insertChunkStmt.run(
+          docId,
+          chunkText
+        );
         // const chunkRowId = chunkInsertResult.lastInsertRowid;
-        const chunkRowId =
-          (chunkInsertResult as any).id ?? chunkInsertResult.lastInsertRowid; // 버전 호환성
+        const chunkRowId: number | undefined =
+          "id" in chunkInsertResult && typeof chunkInsertResult.id === "number"
+            ? chunkInsertResult.id
+            : "lastInsertRowid" in chunkInsertResult &&
+                typeof chunkInsertResult.lastInsertRowid === "number"
+              ? chunkInsertResult.lastInsertRowid
+              : undefined; // 버전 호환성
 
         if (chunkRowId) {
           // 2. vss_chunks 테이블에 embedding 삽입 (rowid를 chunk의 rowid와 동일하게 사용)
           // 벡터는 일반적으로 Float32Array로 변환하여 저장하는 것이 효율적일 수 있음 (sqlite-vss 문서 확인 필요)
           const vectorBuffer = Buffer.from(
-            new Float32Array(embeddingVector).buffer,
+            new Float32Array(embeddingVector).buffer
           );
           insertVectorStmt.run(chunkRowId, vectorBuffer);
           console.log(
-            `Stored chunk ${chunkRowId} and its vector for doc ${docId}`,
+            `Stored chunk ${chunkRowId} and its vector for doc ${docId}`
           );
         } else {
           console.warn(
-            `Could not get rowid after inserting chunk for doc ${docId}`,
+            `Could not get rowid after inserting chunk for doc ${docId}`
           );
         }
       }
@@ -237,13 +246,13 @@ async function generateAndStoreEmbeddings(
     // 모든 작업 성공 시 트랜잭션 커밋
     db.exec("COMMIT");
     console.log(
-      `Successfully processed and stored embeddings for doc ${docId}`,
+      `Successfully processed and stored embeddings for doc ${docId}`
     );
   } catch (error) {
     // 오류 발생 시 롤백
     console.error(
       "Error during embedding storage transaction, rolling back:",
-      error,
+      error
     );
     db.exec("ROLLBACK");
     throw error; // 상위 핸들러에서 처리하도록 에러 재발생
@@ -257,7 +266,7 @@ export async function POST(req: NextRequest) {
 
   try {
     // 1. 요청에서 파일 정보 추출
-    const { file, fileBuffer, fileName, fileType, fileSize } =
+    const { _file, fileBuffer, fileName, fileType, fileSize } =
       await getFileInfoFromRequest(req);
 
     // 2. 고유 ID 및 S3 키 생성
@@ -294,23 +303,22 @@ export async function POST(req: NextRequest) {
         fileId: fileId,
         metadata: newMetadata,
       },
-      { status: 201 },
+      { status: 201 }
     );
-  } catch (error: any) {
-    // any 대신 unknown 사용 권장 후 타입 체크
+  } catch (error: unknown) {
     console.error("Error processing file upload pipeline:", error);
 
-    // TODO: 에러 단계별 롤백 로직 추가 (예: DB 저장 실패 시 S3 객체 삭제)
+    let errorMessage = "Failed to process file";
+    let statusCode = 500;
 
-    // Specific error handling (e.g., file not provided)
-    if (error.message === "No file provided") {
-      return NextResponse.json({ error: error.message }, { status: 400 });
+    if (error instanceof Error) {
+      errorMessage += `: ${error.message}`;
+      if (error.message === "No file provided") {
+        statusCode = 400;
+      }
+    } else {
+      errorMessage += ": Unknown error occurred";
     }
-    // Handle other known errors (S3, DB, Embeddings) if needed
-
-    return NextResponse.json(
-      { error: `Failed to process file: ${error.message}` },
-      { status: 500 },
-    );
+    return NextResponse.json({ error: errorMessage }, { status: statusCode });
   }
 }

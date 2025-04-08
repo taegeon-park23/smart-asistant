@@ -11,4 +11,4 @@ export interface FileMetadata {
 
 // This array acts as our temporary in-memory database.
 // WARNING: Data will be lost when the server restarts!
-export let fileMetadataStore: FileMetadata[] = [];
+export const fileMetadataStore: FileMetadata[] = [];

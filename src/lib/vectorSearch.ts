@@ -2,7 +2,6 @@
 
 import { getDb } from "./db"; // DB 인스턴스 가져오기
 import { getEmbeddings } from "./embeddingGenerator"; // 임베딩 생성 함수
-import type { Database } from "better-sqlite3";
 
 // 검색 결과의 타입을 정의하는 인터페이스
 export interface SearchResult {
@@ -21,7 +20,7 @@ export interface SearchResult {
  */
 export async function searchSimilarChunks(
   query: string,
-  limit: number = 3, // 기본적으로 상위 3개 결과 반환
+  limit: number = 3 // 기본적으로 상위 3개 결과 반환
 ): Promise<SearchResult[]> {
   if (!query || query.trim().length === 0) {
     console.log("Search query is empty.");
@@ -38,7 +37,7 @@ export async function searchSimilarChunks(
 
     // 임베딩 벡터를 SQLite BLOB으로 저장하기 위해 Buffer로 변환
     const queryVectorBuffer = Buffer.from(
-      new Float32Array(queryEmbedding).buffer,
+      new Float32Array(queryEmbedding).buffer
     );
 
     // 2. 데이터베이스에서 유사 벡터 검색 (sqlite-vss 사용)
@@ -75,7 +74,7 @@ export async function searchSimilarChunks(
     const results = stmt.all(queryVectorBuffer, limit, limit) as SearchResult[];
 
     console.log(
-      `Found ${results.length} similar chunks for query: "${query.substring(0, 50)}..."`,
+      `Found ${results.length} similar chunks for query: "${query.substring(0, 50)}..."`
     );
     // console.log(results); // 필요시 결과 로깅
 

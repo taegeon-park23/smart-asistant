@@ -5,7 +5,8 @@ const nextConfig: NextConfig = {
   // 기존 설정이 있다면 유지...
 
   // Webpack 개발 서버 설정 추가
-  webpack: (config, { buildId, dev, isServer, defaultLoaders, webpack }) => {
+  webpack: (config, { _buildId, dev, isServer, _defaultLoaders, _webpack }) => {
+    // webpack: (config, { buildId: _buildId, dev, isServer, defaultLoaders: _defaultLoaders, webpack: _webpack }) => { // 이전 단계에서 _ 추가한 버전
     // 개발 모드이고 클라이언트 측 번들일 때만 폴링 활성화
     if (dev && !isServer) {
       config.watchOptions = {
