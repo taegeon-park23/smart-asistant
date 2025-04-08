@@ -11,10 +11,10 @@ services:
       - .:/app
       # node_modules 격리 (호스트 node_modules가 덮어쓰는 것 방지)
       - /app/node_modules
-      # .next 폴더는 Named Volume 사용 (root 사용자는 여기에 쓰기 권한 가짐)
-      - nextjs_dev_cache:/app/.next
     environment:
       - NODE_ENV=development
+      - WATCHPACK_POLLING=true
+      - CHOKIDAR_USEPOLLING=true # HMR을 위해 추가
       # 필요시 다른 환경 변수 추가
     container_name: nextjs-app
     # command를 기본값으로 되돌림 (Dockerfile의 CMD 사용)
