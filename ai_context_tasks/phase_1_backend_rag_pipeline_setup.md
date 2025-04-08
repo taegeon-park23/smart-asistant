@@ -222,6 +222,15 @@ npm install openai
 - OpenAI Chat Completions API (gpt-4o-mini 모델)를 호출하여 최종 답변을 생성합니다. (5단계에서 설정한 OpenAI 클라이언트 사용)
 - API 오류를 처리하고 생성된 답변을 클라이언트에 반환합니다.
 
+```
+$ curl -X POST \
+     -H "Content-Type: application/json" \
+     -d '{"message": "프로젝트의 구조는 어떻게 구성되어 있는지 설명해주세요."}' \
+     http://localhost:3000/api/chat
+
+{"answer":"문서에는 스마트 스터디 어시스턴트의 배포 구성도에 대한 내용이 포함되어 있으며, 개발 환경 및 운영 환경에서의 서비스 구성과 비용 목표 등에 대해 설명하고 있습니다. 특정 메시지가 포함되어 있지 않 아 어떤 내용을 추가적으로 궁금해 하시는 것인지 명확하지 않습니다. 더 구체적인 질문을 주시면 그에 맞춰 답변해 드리겠습니다.","context":[{"id":1,"doc_id":"1744114421864-py1sx27","chunk_text":"스마트 스터디 어시스턴트 배포 구성도\n소스 코드 관리\nGitHub\ndevelop 브랜치\nmain 브랜치\nGitHub Actions\ndevelop: 단일 배포\n(Push 시)\nmain: 무중단 배포\n(PR Merge 시)\n개발자\nAWS Cloud (개발 환경)월 $3 비용 목표\nVPC (dev)\nECR\ndev 이미지\nApplication\nLoad Balancer\ndev.example.com\nAWS Fargate Task (dev)\n단일 태스크 (Spot)\nDocker (Next.js + SQLite)\n개발 환경 서비스\n• S3 (Standard 스토리지)\n• CloudWatch (기본 로깅)\n• AWS Budgets ($3 한도)\n개발 테스터\nAWS Cloud (운영 환경)월 $5 비용 목표\nVPC (prod)\nECR\nprod 이미지\nApplication\nLoad Balancer\napp.example.com\nAWS Fargate Task #1\n(Spot)\nDocker (Next.js + SQLite v1)\nAWS Fargate Task #2\n(배포 중에만 활성화, Spot)\nDocker (Next.js + SQLite v2)\n운영 환경 서비스\n• S3 (Standard-IA/Glacier IR)\n• EFS (선택적, 데이터 영속성)\n• CloudWatch (상세 모니 터링)\n• AWS Budgets ($5 한도)\n• Route 53 (DNS)\n실제 사용자\nOpenAI Cloud\nGPT-4o mini API개발 및 운영 환경에서 공통으로 사용 (API Key)\nPush\nPR Merge\n무중단\n배포\n테스트 요청\n서비스 요청\n환경 분 리 / 독립 구성\n1. 새 버전 Task #2 생성\n2. ALB 헬스 체크\n3. 트래픽을 Task #2로 전환\n4. 기존 Task #1 정상 종료","distance":1.8439252376556396,"doc_name":"DeploymentDiagram.pdf"}]}
+```
+
 ## 8단계: 인메모리 캐싱 구현
 
 ### 캐시 구현
