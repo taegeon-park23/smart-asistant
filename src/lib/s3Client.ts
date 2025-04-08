@@ -28,7 +28,7 @@ if (endpoint) {
     };
   } else {
     console.warn(
-      "MinIO endpoint specified, but AWS_ACCESS_KEY_ID or AWS_SECRET_ACCESS_KEY not found in environment variables."
+      "MinIO endpoint specified, but AWS_ACCESS_KEY_ID or AWS_SECRET_ACCESS_KEY not found in environment variables.",
     );
   }
 } else {
@@ -38,7 +38,7 @@ if (endpoint) {
   // 만약 .env.local에 AWS 키를 설정했다면 여기서 자동으로 사용됨.
   if (!accessKeyId || !secretAccessKey) {
     console.warn(
-      "Using default AWS S3 endpoint. AWS credentials not found in environment variables. SDK will attempt other methods (e.g., ~/.aws/credentials, IAM role)."
+      "Using default AWS S3 endpoint. AWS credentials not found in environment variables. SDK will attempt other methods (e.g., ~/.aws/credentials, IAM role).",
     );
   }
   // 환경 변수에 키가 있다면 명시적으로 전달해도 무방

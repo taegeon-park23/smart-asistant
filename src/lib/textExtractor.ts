@@ -10,7 +10,7 @@ import { Buffer } from "buffer"; // Node.js Buffer 타입
  */
 export async function extractTextFromFile(
   fileBuffer: Buffer,
-  mimeType: string
+  mimeType: string,
 ): Promise<string> {
   console.log(`Attempting to extract text for MIME type: ${mimeType}`);
   try {
@@ -29,7 +29,7 @@ export async function extractTextFromFile(
   } catch (error) {
     console.error(`Error extracting text for ${mimeType}:`, error);
     throw new Error(
-      `Failed to extract text from file: ${error instanceof Error ? error.message : String(error)}`
+      `Failed to extract text from file: ${error instanceof Error ? error.message : String(error)}`,
     );
   }
 }

@@ -28,7 +28,7 @@ export async function getEmbeddings(text: string): Promise<number[]> {
 
   try {
     console.log(
-      `Requesting embeddings for text (first 50 chars): "${inputText.substring(0, 50)}..."`
+      `Requesting embeddings for text (first 50 chars): "${inputText.substring(0, 50)}..."`,
     );
     const response = await openai.embeddings.create({
       model: EMBEDDING_MODEL,
@@ -45,7 +45,7 @@ export async function getEmbeddings(text: string): Promise<number[]> {
     ) {
       const embeddingVector = response.data[0].embedding;
       console.log(
-        `Embeddings received successfully. Dimension: ${embeddingVector.length}`
+        `Embeddings received successfully. Dimension: ${embeddingVector.length}`,
       );
       // 3. 결과를 캐시에 저장 (기본 TTL 적용됨)
       cache.set(cacheKey, embeddingVector);
@@ -54,7 +54,7 @@ export async function getEmbeddings(text: string): Promise<number[]> {
       // 예상치 못한 응답 형식
       console.error(
         "Invalid response structure from OpenAI Embeddings API:",
-        response
+        response,
       );
       throw new Error("Invalid response structure from OpenAI Embeddings API.");
     }
@@ -62,7 +62,7 @@ export async function getEmbeddings(text: string): Promise<number[]> {
     console.error("Error getting embeddings from OpenAI:", error);
     // API 키 오류, 네트워크 오류, Rate Limit 등 다양한 에러 처리
     throw new Error(
-      `Failed to get embeddings: ${error instanceof Error ? error.message : String(error)}`
+      `Failed to get embeddings: ${error instanceof Error ? error.message : String(error)}`,
     );
   }
 }

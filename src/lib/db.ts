@@ -40,17 +40,17 @@ function initializeDatabase(): Database.Database {
 
     db.loadExtension(vector0ExtensionPath);
     console.log(
-      `Successfully loaded SQLite extension from ${vector0ExtensionPath}`
+      `Successfully loaded SQLite extension from ${vector0ExtensionPath}`,
     );
 
     db.loadExtension(vss0ExtensionPath);
     console.log(
-      `Successfully loaded SQLite extension from ${vss0ExtensionPath}`
+      `Successfully loaded SQLite extension from ${vss0ExtensionPath}`,
     );
   } catch (error) {
     console.error("Failed to load SQLite vector extensions:", error);
     throw new Error(
-      `Failed to load SQLite vector extensions: ${error instanceof Error ? error.message : String(error)}`
+      `Failed to load SQLite vector extensions: ${error instanceof Error ? error.message : String(error)}`,
     );
   }
 
@@ -94,7 +94,7 @@ function initializeDatabase(): Database.Database {
   } catch (tableError) {
     console.error("Error creating database tables:", tableError);
     throw new Error(
-      `Failed to create database tables: ${tableError instanceof Error ? tableError.message : String(tableError)}`
+      `Failed to create database tables: ${tableError instanceof Error ? tableError.message : String(tableError)}`,
     );
   }
 

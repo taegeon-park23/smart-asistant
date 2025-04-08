@@ -28,7 +28,7 @@ export async function POST(req: NextRequest) {
     ) {
       return NextResponse.json(
         { error: "Message is required and must be a non-empty string" },
-        { status: 400 }
+        { status: 400 },
       );
     }
     console.log(`Received chat message: ${message}`);
@@ -41,7 +41,7 @@ export async function POST(req: NextRequest) {
       console.error("Error during vector search:", searchError);
       return NextResponse.json(
         { error: "Failed to search relevant documents" },
-        { status: 500 }
+        { status: 500 },
       );
     }
 
@@ -49,7 +49,8 @@ export async function POST(req: NextRequest) {
       searchResults.length > 0
         ? searchResults
             .map(
-              (r, i) => `[참고 ${i + 1} - 문서: ${r.doc_name}]\n${r.chunk_text}`
+              (r, i) =>
+                `[참고 ${i + 1} - 문서: ${r.doc_name}]\n${r.chunk_text}`,
             ) // 출처 명시 개선
             .join("\n\n---\n\n") // 청크 구분 명확화
         : "관련된 참고 문서를 찾지 못했습니다.";
@@ -59,7 +60,7 @@ export async function POST(req: NextRequest) {
     const cachedAnswer = cache.get<string>(llmCacheKey);
     if (cachedAnswer) {
       console.log(
-        `Cache hit for LLM answer: Query="${message.substring(0, 30)}..."`
+        `Cache hit for LLM answer: Query="${message.substring(0, 30)}..."`,
       );
       return NextResponse.json({ answer: cachedAnswer });
     }
@@ -94,7 +95,7 @@ export async function POST(req: NextRequest) {
       console.error("Error calling OpenAI API:", llmError);
       return NextResponse.json(
         { error: "AI model interaction failed" },
-        { status: 500 }
+        { status: 500 },
       );
     }
 
@@ -107,7 +108,7 @@ export async function POST(req: NextRequest) {
     console.error("Error in chat API:", error);
     return NextResponse.json(
       { error: "Failed to process chat message" },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }
