@@ -1,24 +1,26 @@
 {
   "env": {
     "browser": true,
-    "es2021": true
+    "es2021": true,
   },
   "extends": [
     "eslint:recommended", // Or any other base config you're using
     "plugin:react/recommended", // If you're using React
     "plugin:@typescript-eslint/recommended", // If you're using TypeScript
-    "prettier" // This is the important part!
+    "prettier", // This is the important part!
   ],
   "parser": "@typescript-eslint/parser",
   "parserOptions": {
     "ecmaVersion": "latest",
-    "sourceType": "module"
+    "sourceType": "module",
   },
-  "plugins": [
-    "react",
-    "@typescript-eslint"
-  ],
+  "plugins": ["react", "@typescript-eslint"],
   "rules": {
-    // Your custom ESLint rules here
-  }
+    "@typescript-eslint/no-unused-vars": [
+      "warn", // or 'error' if you want to treat it as an error
+      {
+        "argsIgnorePattern": "^_", // Ignore function arguments starting with _
+      },
+    ],
+  },
 }
