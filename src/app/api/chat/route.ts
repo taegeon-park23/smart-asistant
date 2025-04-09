@@ -1,23 +1,12 @@
-// 예시: /api/chat/route.ts (간략화된 흐름)
+// src/app/api/chat/route.ts
 import { NextRequest, NextResponse } from "next/server";
-import { SearchResult, searchSimilarChunks } from "@/lib/vectorSearch"; // 벡터 검색 함수 import
-import openai from "@/lib/openaiClient"; // OpenAI 클라이언트
-import { ChatCompletionMessageParam } from "openai/src/resources.js";
-import crypto from "crypto"; // 캐시 키 생성을 위한 해시 사용
-import cache from "@/lib/cache";
+import { generateChatResponse } from "@/features/chat/services"; // 서비스 계층 함수 import
+import { AppError, BadRequestError } from "@/shared/errors";
 
-const LLM_MODEL = "gpt-4o-mini";
-const LLM_CACHE_KEY_PREFIX = "llm_answer_";
-
-// 간단한 해시 함수 (캐시 키 생성용)
-function generateCacheKey(message: string, context: string): string {
-  const hash = crypto.createHash("sha256");
-  hash.update(message + "||" + context); // 메시지와 컨텍스트 조합
-  return `${LLM_CACHE_KEY_PREFIX}${hash.digest("hex")}`;
-}
-
+// POST /api/chat - 채팅 메시지 처리
 export async function POST(req: NextRequest) {
   try {
+    // 1. 요청 본문 파싱 및 유효성 검사
     const body = await req.json();
     const message = body.message;
 
@@ -26,89 +15,42 @@ export async function POST(req: NextRequest) {
       typeof message !== "string" ||
       message.trim().length === 0
     ) {
-      return NextResponse.json(
-        { error: "Message is required and must be a non-empty string" },
-        { status: 400 },
-      );
-    }
-    console.log(`Received chat message: ${message}`);
-
-    let searchResults: SearchResult[] = [];
-    try {
-      searchResults = await searchSimilarChunks(message, 3); // 상위 3개 검색
-      console.log(`Found ${searchResults.length} relevant chunks.`);
-    } catch (searchError) {
-      console.error("Error during vector search:", searchError);
-      return NextResponse.json(
-        { error: "Failed to search relevant documents" },
-        { status: 500 },
+      throw new BadRequestError(
+        "Message is required and must be a non-empty string.",
       );
     }
 
-    const contextText =
-      searchResults.length > 0
-        ? searchResults
-            .map(
-              (r, i) =>
-                `[참고 ${i + 1} - 문서: ${r.doc_name}]\n${r.chunk_text}`,
-            ) // 출처 명시 개선
-            .join("\n\n---\n\n") // 청크 구분 명확화
-        : "관련된 참고 문서를 찾지 못했습니다.";
+    // 입력 길이 제한 등 추가 검사 가능
+    // if (message.length > MAX_QUERY_LENGTH) throw new BadRequestError("Message is too long.");
 
-    const llmCacheKey = generateCacheKey(message, contextText);
-
-    const cachedAnswer = cache.get<string>(llmCacheKey);
-    if (cachedAnswer) {
-      console.log(
-        `Cache hit for LLM answer: Query="${message.substring(0, 30)}..."`,
-      );
-      return NextResponse.json({ answer: cachedAnswer });
-    }
-
-    // 3. LLM 프롬프트 구성
-    // 참고 문서에 질문과 관련된 내용이 전혀 없거나 부족할 경우, "문서에서 관련 내용을 찾을 수 없습니다." 또는 "정보가 부족하여 답변하기 어렵습니다." 와 같이 솔직하게 답변해주세요. 내용을 추측하거나 일반적인 지식을 기반으로 답변하지 마세요.
-    const messages: ChatCompletionMessageParam[] = [
-      {
-        role: "system",
-        content: `당신은 사용자가 업로드한 문서를 기반으로 질문에 답변하는 AI 어시스턴트입니다. 제공되는 [참고 문서] 내용을 바탕으로 사용자의 [질문]에 대해 명확하고 간결하게 한국어로 답변해야 합니다.`,
-      },
-      {
-        role: "user",
-        content: `\n[참고 문서]\n${contextText}\n\n---\n\n[질문]\n${message}\n`,
-      },
-    ];
-    console.log(messages);
-
-    let llmAnswer = "답변 생성 중 오류가 발생했습니다."; // 기본 오류 메시지
-    try {
-      const completion = await openai.chat.completions.create({
-        model: LLM_MODEL,
-        messages: messages,
-        temperature: 0.3, // RAG에서는 낮은 temperature가 일반적으로 더 좋음 (사실 기반 응답)
-        // max_tokens: 500, // 필요시 최대 토큰 제한
-      });
-
-      llmAnswer = completion.choices[0]?.message?.content?.trim() || llmAnswer; // 응답 추출, 실패 시 기본 메시지 유지
-      cache.set(llmCacheKey, llmAnswer);
-      console.log(`Stored LLM answer in cache: Key=${llmCacheKey}`);
-    } catch (llmError) {
-      console.error("Error calling OpenAI API:", llmError);
-      return NextResponse.json(
-        { error: "AI model interaction failed" },
-        { status: 500 },
-      );
-    }
-
-    console.log(`Generated Answer: ${llmAnswer}`);
-    return NextResponse.json({
-      answer: llmAnswer,
-      // context: searchResults // 디버깅 완료 후 제거 고려
-    });
-  } catch (error) {
-    console.error("Error in chat API:", error);
-    return NextResponse.json(
-      { error: "Failed to process chat message" },
-      { status: 500 },
+    console.log(
+      `[API POST /chat] Received message: ${message.substring(0, 100)}...`,
     );
+
+    // 2. 서비스 계층 함수 호출
+    const response = await generateChatResponse(message);
+
+    // 3. 성공 응답 반환
+    return NextResponse.json(response); // { answer: "..." } 형태
+  } catch (error: unknown) {
+    console.error("[API POST /chat] Error processing chat message:", error);
+
+    // 에러 타입에 따른 상태 코드 및 메시지 설정
+    let statusCode = 500;
+    let message = "Failed to process chat message";
+
+    if (error instanceof BadRequestError) {
+      statusCode = 400;
+      message = error.message;
+    } else if (error instanceof AppError) {
+      // 서비스 계층에서 발생한 오류 (DB, S3, OpenAI 등)
+      statusCode = error.statusCode;
+      message = error.message;
+    } else if (error instanceof Error) {
+      // 예상치 못한 내부 오류
+      message = `Internal server error: ${error.message}`;
+    }
+
+    return NextResponse.json({ error: message }, { status: statusCode });
   }
 }
